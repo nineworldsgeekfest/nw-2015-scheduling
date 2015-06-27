@@ -696,6 +696,7 @@ sub make_konopas_data {
                 $newPersonItem->{'name'} = [$firstName, $lastName, $namePrefix];
 
                 if (exists($guestData->{$g})) {
+                    $guestData->{$g}{'seen'} = 1;
                     $newPersonItem->{'links'}{'img'} = $guestData->{$g}{'img'};
                     $newPersonItem->{'links'}{'bio'} = $guestData->{$g}{'bio'};
                     $newPersonItem->{'bio'} = $guestData->{$g}{'shortBio'};
@@ -711,6 +712,42 @@ sub make_konopas_data {
         }
 
         push @$programList, $newProgramItem;
+    }
+
+    # mop up unseen guests
+    foreach my $g (keys %$guestData) {
+        next if exists($g->{'seen'});
+        if (!exists($personHash->{$g})) {
+            # if it is present in the peoplemap, take the ID from there, else generate a new one.
+            my $thisPersonId;
+            if (exists($peopleData->{$g})) {
+                $thisPersonId = $peopleData->{$g};
+            } else {
+                $personId++;
+                $thisPersonId = $personId;
+                $peopleData->{$g} = $thisPersonId;
+            }
+            my $newPersonItem = {id => $thisPersonId, links => {}, prog => [], tags => [], bio => ""};
+            my @splitName = split(/\s+/, $g);
+            my $namePrefix = '';
+            if (($splitName[0] eq 'Dr') || ($splitName[0] eq "Rev'd")) {
+                $namePrefix = shift @splitName;
+            }
+            my $firstName = join(' ', @splitName[0..($#splitName - 1)]);
+            my $lastName = $splitName[$#splitName] . ' [!]';
+            $newPersonItem->{'name'} = [$firstName, $lastName, $namePrefix];
+
+            if (exists($guestData->{$g})) {
+                $guestData->{$g}{'seen'} = 1;
+                $newPersonItem->{'links'}{'img'} = $guestData->{$g}{'img'};
+                $newPersonItem->{'links'}{'bio'} = $guestData->{$g}{'bio'};
+                $newPersonItem->{'bio'} = $guestData->{$g}{'shortBio'};
+            } else {
+                print "- no match for $g\n" if $DEBUG;
+            }
+
+            $personHash->{$g} = $newPersonItem;
+        }
     }
 
     open(OUT, ">", "peoplemap.csv");
