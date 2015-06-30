@@ -19,8 +19,8 @@ my $homeRooms = process_homerooms();
 my ($roomSched, $guestSched, $trackSched) = validate_schedule($schedule);
 produce_individual_schedules($roomSched, $guestSched, $trackSched);
 produce_printable_schedules($trackSched, $homeRooms);
-my $spiels = read_spiels();
-$schedule = do_spiel_matching($spiels, $schedule);
+# my $spiels = read_spiels(); # disabled for DB
+# $schedule = do_spiel_matching($spiels, $schedule); # disabled for DB
 make_konopas_data($schedule);
 make_fake_cache_manifest();
 
@@ -79,7 +79,7 @@ sub process_db_schedule {
 
     my %dayMapping = ('2015-08-06' => 'Thu', '2015-08-07' => 'Fri', '2015-08-08' => 'Sat', '2015-08-09' => 'Sun');
 
-    my $error; my $program; my $programTracks; my $programGuests;
+    my $error; my $program; my $programTracks; my $programGuests; my $programFlags;
 
     ($program, $error) = Util::DB::dbSelect($dbh, 'id', 'id, start_date, start_time, title, subtitle, type, short_description, description, loc, mins', ['program'], '1=1', []);
     if (!defined($program)) {
@@ -88,6 +88,7 @@ sub process_db_schedule {
     }
 
     ($programTracks, $error) = Util::DB::dbSelect($dbh, 'id', 'program_track.id AS id, program_id, name', ['program_track', 'track'], 'program_track.track_id = track.id', []);
+    ($programFlags, $error) = Util::DB::dbSelect($dbh, 'id', 'program_flags.id AS id, program_id, name', ['program_flags', 'flags'], 'program_flags.flag_id = flags.id', []);
     ($programGuests, $error) = Util::DB::dbSelect($dbh, 'id', 'program_people.id AS id, program_id, prefix, forename, surname, bio, link_bio, link_img', ['program_people', 'people'], 'program_people.people_id = people.id', []);
 
     my $dayFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%F');
@@ -103,12 +104,17 @@ sub process_db_schedule {
         push @{$program->{$programGuests->{$programGuestId}{'program_id'}}{'Guests'}}, $programGuests->{$programGuestId};
     }
 
+    foreach my $programFlagId (keys %$programFlags) {
+        push @{$program->{$programFlags->{$programFlagId}{'program_id'}}{'Flags'}}, $programFlags->{$programFlagId};
+    }
+
     foreach my $programId (keys %$program) {
         my $programItem = $program->{$programId};
         # Track,Track,EventShort,Event,EventClass,Flags,StartDay,StartTime,StartDT,EndDay,EndTime,EndDT,Room,Guests
         my $programRecord = {};
         $programRecord->{'Tracks'} = $programItem->{'Tracks'};
         $programRecord->{'Guests'} = $programItem->{'Guests'};
+        $programRecord->{'Flags'} = $programItem->{'Flags'};
         $programRecord->{'EventShort'} = $programItem->{'title'};
         $programRecord->{'Event'} = $programItem->{'title'};
         $programRecord->{'EventClass'} = $programItem->{'type'};
@@ -120,7 +126,7 @@ sub process_db_schedule {
         $programRecord->{'StartTime'} =~ s/:00$//;
         $programRecord->{'StartDT'} = $programRecord->{'StartDay'} . ' ' . $programRecord->{'StartTime'};
         $programRecord->{'StartObj'} = dt_to_obj($programRecord->{'StartDT'});
-        $programRecord->{'EndObj'} = $programRecord->{'StartObj'}->add(minutes => $programItem->{'mins'});
+        $programRecord->{'EndObj'} = $programRecord->{'StartObj'}->clone->add(minutes => $programItem->{'mins'});
         $programRecord->{'EndDay'} = $dayFormatter->format_datetime($programRecord->{'EndObj'});
         $programRecord->{'EndTime'} = $timeFormatter->format_datetime($programRecord->{'EndObj'});
         $programRecord->{'EndDT'} = $programRecord->{'EndDay'} . ' ' . $programRecord->{'EndTime'};
@@ -721,7 +727,7 @@ sub make_konopas_data {
         }
 
         # *id, *title, *tags: [], *date, *time, *mins, *loc: [], people: [{id, name}], *desc
-        my $newProgramItem = {id => $programId."", title => $boxContents, desc => $s->{'Spiel'}, tags => $s->{'Tracks'}, loc => [render_room($s->{'Room'}, 1)]};
+        my $newProgramItem = {id => $programId."", title => $boxContents, desc => $s->{'Description'}, tags => $s->{'Tracks'}, loc => [render_room($s->{'Room'}, 1)]};
 
         my $dateFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%F');
         my $formattedDate = $dateFormatter->format_datetime($s->{'StartObj'});
