@@ -3,6 +3,7 @@
 use DateTime;
 use DateTime::Format::Strptime;
 use Mojo::JSON qw(encode_json);
+use Util::DB;
 
 our $localTZ = DateTime::TimeZone->new(name => 'local');
 our $DEBUG = 0;
@@ -12,7 +13,8 @@ if ($ARGV[0] eq '--short') {
     $USESHORT = 1;
 }
 
-my $schedule = process_schedule();
+# my $schedule = process_schedule();
+my $schedule = process_db_schedule();
 my $homeRooms = process_homerooms();
 my ($roomSched, $guestSched, $trackSched) = validate_schedule($schedule);
 produce_individual_schedules($roomSched, $guestSched, $trackSched);
@@ -70,6 +72,63 @@ sub process_homerooms {
     }
 
     return $homeRooms;
+}
+
+sub process_db_schedule {
+    my $dbh = Util::DB::getDatabaseConnection();
+
+    my %dayMapping = ('2015-08-06' => 'Thu', '2015-08-07' => 'Fri', '2015-08-08' => 'Sat', '2015-08-09' => 'Sun');
+
+    my $error; my $program; my $programTracks; my $programGuests;
+
+    ($program, $error) = Util::DB::dbSelect($dbh, 'id', 'id, start_date, start_time, title, subtitle, type, short_description, description, loc, mins', ['program'], '1=1', []);
+    if (!defined($program)) {
+        print STDERR "DIE: can't get program\n";
+        die;
+    }
+
+    ($programTracks, $error) = Util::DB::dbSelect($dbh, 'id', 'program_track.id AS id, program_id, name', ['program_track', 'track'], 'program_track.track_id = track.id', []);
+    ($programGuests, $error) = Util::DB::dbSelect($dbh, 'id', 'program_people.id AS id, program_id, prefix, forename, surname, bio, link_bio, link_img', ['program_people', 'people'], 'program_people.people_id = people.id', []);
+
+    my $dayFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%F');
+    my $timeFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%R');
+
+    my @records;
+
+    foreach my $programTrackId (keys %$programTracks) {
+        push @{$program->{$programTracks->{$programTrackId}{'program_id'}}{'Tracks'}}, $programTracks->{$programTrackId}{'name'};
+    }
+
+    foreach my $programGuestId (keys %$programGuests) {
+        push @{$program->{$programGuests->{$programGuestId}{'program_id'}}{'Guests'}}, $programGuests->{$programGuestId};
+    }
+
+    foreach my $programId (keys %$program) {
+        my $programItem = $program->{$programId};
+        # Track,Track,EventShort,Event,EventClass,Flags,StartDay,StartTime,StartDT,EndDay,EndTime,EndDT,Room,Guests
+        my $programRecord = {};
+        $programRecord->{'Tracks'} = $programItem->{'Tracks'};
+        $programRecord->{'Guests'} = $programItem->{'Guests'};
+        $programRecord->{'EventShort'} = $programItem->{'title'};
+        $programRecord->{'Event'} = $programItem->{'title'};
+        $programRecord->{'EventClass'} = $programItem->{'type'};
+        $programRecord->{'Room'} = $programItem->{'loc'};
+        $programRecord->{'Rooms'} = handle_room($programItem->{'loc'});
+        $programRecord->{'Description'} = $programItem->{'description'};
+        $programRecord->{'StartDay'} = $dayMapping{$programItem->{'start_date'}};
+        $programRecord->{'StartTime'} = $programItem->{'start_time'};
+        $programRecord->{'StartTime'} =~ s/:00$//;
+        $programRecord->{'StartDT'} = $programRecord->{'StartDay'} . ' ' . $programRecord->{'StartTime'};
+        $programRecord->{'StartObj'} = dt_to_obj($programRecord->{'StartDT'});
+        $programRecord->{'EndObj'} = $programRecord->{'StartObj'}->add(minutes => $programItem->{'mins'});
+        $programRecord->{'EndDay'} = $dayFormatter->format_datetime($programRecord->{'EndObj'});
+        $programRecord->{'EndTime'} = $timeFormatter->format_datetime($programRecord->{'EndObj'});
+        $programRecord->{'EndDT'} = $programRecord->{'EndDay'} . ' ' . $programRecord->{'EndTime'};
+        push @records, $programRecord;
+    }
+
+    Util::DB::dropDatabaseConnection($dbh);
+    return \@records;
 }
 
 sub process_schedule {
@@ -339,7 +398,7 @@ sub produce_printable_schedules {
     my %scheduleDays = ('Thu' => {start => dt_to_obj('Thu 18:00'), end => dt_to_obj('Fri 02:00')},
                         'Fri' => {start => dt_to_obj('Fri 08:00'), end => dt_to_obj('Sat 02:00')},
                         'Sat' => {start => dt_to_obj('Sat 08:00'), end => dt_to_obj('Sun 02:00')},
-                        'Sun' => {start => dt_to_obj('Sun 08:00'), end => dt_to_obj('Sun 23:00')}
+                        'Sun' => {start => dt_to_obj('Sun 08:00'), end => dt_to_obj('Sun 23:45')}
                         );
 
     mkdir('printable') unless (-d 'printable');
