@@ -116,7 +116,7 @@ sub process_db_schedule {
         $programRecord->{'Guests'} = $programItem->{'Guests'};
         $programRecord->{'Flags'} = $programItem->{'Flags'};
         $programRecord->{'EventShort'} = $programItem->{'title'};
-        $programRecord->{'Event'} = $programItem->{'title'};
+        $programRecord->{'Event'} = $programItem->{'title'} . (defined($programItem->{'subtitle'}) && ($programItem->{'subtitle'} ne '') ? ' - ' . $programItem->{'subtitle'} : '');
         $programRecord->{'EventClass'} = $programItem->{'type'};
         $programRecord->{'Room'} = $programItem->{'loc'};
         $programRecord->{'Rooms'} = handle_room($programItem->{'loc'});
@@ -300,6 +300,7 @@ sub produce_individual_schedules {
         print "Generating timetable for room '$thisRoom' to: $roomFileName\n" if $DEBUG;
 
         open(OUT, '>'. $roomFileName);
+        binmode(OUT, ":utf8"); 
         print OUT "Room: $thisRoom\n\n";
 
         foreach my $s (sort {$a->{'StartObj'} <=> $b->{'StartObj'}} @{$rooms->{$thisRoom}}) {
@@ -316,6 +317,7 @@ sub produce_individual_schedules {
         print "Generating timetable for guest '$thisGuest' to: $guestFileName\n" if $DEBUG;
 
         open(OUT, '>'. $guestFileName);
+        binmode(OUT, ":utf8"); 
         print OUT "Guest: $thisGuest\n\n";
 
         foreach my $s (sort {$a->{'StartObj'} <=> $b->{'StartObj'}} @{$guests->{$thisGuest}}) {
@@ -332,6 +334,7 @@ sub produce_individual_schedules {
         print "Generating timetable for track '$thisTrack' to: $trackFileName\n" if $DEBUG;
 
         open(OUT, '>'. $trackFileName);
+        binmode(OUT, ":utf8"); 
         print OUT "Track: $thisTrack\n\n";
 
         foreach my $s (sort {$a->{'StartObj'} <=> $b->{'StartObj'}} @{$tracks->{$thisTrack}}) {
@@ -493,6 +496,7 @@ SESSION:
             print "$thisDay (" . join(',', @trackGrouping) . "):\n\t" . join("\n\t", map {$_ . ' => ' . $timesForThisPage{$_}} @orderedTimes) . "\n\n" if $DEBUG;
 
             open(OUT, ">", "printable/" . $thisDay . $pageNum . '.html');
+            binmode(OUT, ":utf8"); 
             print OUT <<EOHD;
 <html>
     <head><title>$thisDay p$pageNum</title>
