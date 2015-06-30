@@ -5,7 +5,7 @@ use Data::Dumper;
 
 sub getDatabaseConnection {
     my $dsn = "DBI:mysql:database=konopas;host=localhost;mysql_socket=/var/lib/mysql/mysql.sock";
-    my $dbh = DBI->connect($dsn, 'konopas', 'konopas');
+    my $dbh = DBI->connect($dsn, 'konopas', 'konopas', {mysql_enable_utf8 => 1});
     return $dbh;
 }
 
