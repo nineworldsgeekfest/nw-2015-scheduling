@@ -105,13 +105,21 @@ sub process_db_schedule {
     }
 
     foreach my $programFlagId (keys %$programFlags) {
-        push @{$program->{$programFlags->{$programFlagId}{'program_id'}}{'Flags'}}, $programFlags->{$programFlagId};
+        push @{$program->{$programFlags->{$programFlagId}{'program_id'}}{'Flags'}}, $programFlags->{$programFlagId}{'name'};
     }
 
     foreach my $programId (keys %$program) {
         my $programItem = $program->{$programId};
         # Track,Track,EventShort,Event,EventClass,Flags,StartDay,StartTime,StartDT,EndDay,EndTime,EndDT,Room,Guests
         my $programRecord = {};
+        if (!defined($programItem->{'title'})) {
+            print STDERR "*** Program ID $programId is empty, skipping\n";
+            next;
+        }
+        if (!exists($programItem->{'Tracks'})) {
+            print STDERR "*** Program ID $programId has no tracks, skipping\n";
+            next;
+        }
         $programRecord->{'Tracks'} = $programItem->{'Tracks'};
         $programRecord->{'Guests'} = $programItem->{'Guests'};
         $programRecord->{'Flags'} = $programItem->{'Flags'};
@@ -384,7 +392,7 @@ sub is_session_cancelled {
 
 sub render_flags {
     my $flags = shift;
-    my $printableFlags = $flags;
+    my $printableFlags = join(",", sort @$flags);
     if ($flags =~ m/\!NOCLASH/) {
         $printableFlags =~ s/\!NOCLASH//;
         $printableFlags =~ s/^,//;
