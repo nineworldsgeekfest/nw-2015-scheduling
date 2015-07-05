@@ -88,7 +88,7 @@ sub process_db_schedule {
 
     ($programTracks, $error) = Util::DB::dbSelect($dbh, 'id', 'program_track.id AS id, program_id, name', ['program_track', 'track'], 'program_track.track_id = track.id', []);
     ($programFlags, $error) = Util::DB::dbSelect($dbh, 'id', 'program_flags.id AS id, program_id, name, flag_type', ['program_flags', 'flags'], 'program_flags.flag_id = flags.id', []);
-    ($programGuests, $error) = Util::DB::dbSelect($dbh, 'id', 'program_people.id AS id, program_id, full_name, prefix, forename, surname, bio, link_bio, link_img', ['program_people', 'people'], 'program_people.people_id = people.id', []);
+    ($programGuests, $error) = Util::DB::dbSelect($dbh, 'id', 'program_people.id AS id, program_id, people.id AS guest_id, full_name, prefix, forename, surname, bio, link_bio, link_img', ['program_people', 'people'], 'program_people.people_id = people.id', []);
 
     my $dayFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%F');
     my $timeFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%R');
@@ -668,7 +668,6 @@ EOHD
 
 sub make_konopas_data {
     my ($schedule) = @_;
-    my $personId = 0;
     my $personHash = {};
     
     my $programList = [];
@@ -676,10 +675,7 @@ sub make_konopas_data {
     foreach my $s (@$schedule) {
         next if (has_session_flag($s, "Cancelled"));
 
-        my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'});
-        if (defined($s->{'Flags'}) && (render_span_flags($s->{'Flags'}) ne '')) {
-            $boxContents .= render_span_flags($s->{'Flags'});
-        }
+        my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'}) . render_span_flags($s->{'Flags'});
 
         # *id, *title, *tags: [], *date, *time, *mins, *loc: [], people: [{id, name}], *desc
         my $newProgramItem = {id => "$s->{'Id'}", title => $boxContents, desc => $s->{'Description'}, tags => $s->{'Tracks'}, loc => [render_room($s->{'Room'}, 1)]};
@@ -696,13 +692,12 @@ sub make_konopas_data {
 
         foreach my $g (@{$s->{'Guests'}}) {
             if (!exists($personHash->{$g->{'full_name'}})) {
-                # if it is present in the peoplemap, take the ID from there, else generate a new one.
-                my $newPersonItem = {id => "$g->{'id'}", links => {img => $g->{'link_img'}, bio => $g->{'link_bio'}}, prog => [], tags => [], bio => $g->{'bio'}, name => [@{$g}{qw(forename surname prefix)}]};
+                my $newPersonItem = {id => "$g->{'guest_id'}", links => {img => $g->{'link_img'}, bio => $g->{'link_bio'}}, prog => [], tags => [], bio => $g->{'bio'}, name => [@{$g}{qw(forename surname prefix)}]};
                 $personHash->{$g->{'full_name'}} = $newPersonItem;
             }
 
             push @{$personHash->{$g->{'full_name'}}{'prog'}}, "$s->{'Id'}";
-            push @{$newProgramItem->{'people'}}, {id => "$g->{'id'}", name => $g->{'full_name'}};
+            push @{$newProgramItem->{'people'}}, {id => "$g->{'guest_id'}", name => $g->{'full_name'}};
         }
 
         push @$programList, $newProgramItem;
