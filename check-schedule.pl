@@ -13,14 +13,13 @@ if ($ARGV[0] eq '--short') {
     $USESHORT = 1;
 }
 
-# my $schedule = process_schedule();
+binmode(STDOUT, ":utf8"); 
+
 my $schedule = process_db_schedule();
 my $homeRooms = process_homerooms();
 my ($roomSched, $guestSched, $trackSched) = validate_schedule($schedule);
 produce_individual_schedules($roomSched, $guestSched, $trackSched);
 produce_printable_schedules($trackSched, $homeRooms);
-# my $spiels = read_spiels(); # disabled for DB
-# $schedule = do_spiel_matching($spiels, $schedule); # disabled for DB
 make_konopas_data($schedule);
 make_fake_cache_manifest();
 
@@ -89,7 +88,7 @@ sub process_db_schedule {
 
     ($programTracks, $error) = Util::DB::dbSelect($dbh, 'id', 'program_track.id AS id, program_id, name', ['program_track', 'track'], 'program_track.track_id = track.id', []);
     ($programFlags, $error) = Util::DB::dbSelect($dbh, 'id', 'program_flags.id AS id, program_id, name, flag_type', ['program_flags', 'flags'], 'program_flags.flag_id = flags.id', []);
-    ($programGuests, $error) = Util::DB::dbSelect($dbh, 'id', 'program_people.id AS id, program_id, prefix, forename, surname, bio, link_bio, link_img', ['program_people', 'people'], 'program_people.people_id = people.id', []);
+    ($programGuests, $error) = Util::DB::dbSelect($dbh, 'id', 'program_people.id AS id, program_id, full_name, prefix, forename, surname, bio, link_bio, link_img', ['program_people', 'people'], 'program_people.people_id = people.id', []);
 
     my $dayFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%F');
     my $timeFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%R');
@@ -123,6 +122,7 @@ sub process_db_schedule {
         $programRecord->{'Tracks'} = $programItem->{'Tracks'};
         $programRecord->{'Guests'} = $programItem->{'Guests'};
         $programRecord->{'Flags'} = $programItem->{'Flags'};
+        $programRecord->{'Id'} = $programId;
         $programRecord->{'EventShort'} = $programItem->{'title'};
         $programRecord->{'Event'} = $programItem->{'title'} . (defined($programItem->{'subtitle'}) && ($programItem->{'subtitle'} ne '') ? ' - ' . $programItem->{'subtitle'} : '');
         $programRecord->{'EventClass'} = $programItem->{'type'};
@@ -143,38 +143,6 @@ sub process_db_schedule {
 
     Util::DB::dropDatabaseConnection($dbh);
     return \@records;
-}
-
-sub process_schedule {
-    open(IN, "<", "schedule.csv");
-    my @lines = <IN>;
-    close(IN);
-    chomp @lines;
-
-    my $headerLine = shift @lines;
-    my @headers = split(/,/, $headerLine);
-
-    my @records;
-
-    my @splitLines = quoted_csv_split(@lines);
-
-    foreach my $line (@splitLines) {
-        my $record = {};
-        $record->{'Tracks'} = ref_to_no_blanks(@{$line}[0..1]);
-        @{$record}{@headers[2..11]} = @{$line}[2..11];
-        $record->{'Room'} = $line->[12];
-        $record->{'Rooms'} = handle_room($line->[12]);
-        $record->{'Guests'} = ref_to_no_blanks(@{$line}[13..$#$line]);
-        $record->{'StartObj'} = dt_to_obj($record->{'StartDT'});
-        $record->{'EndObj'} = dt_to_obj($record->{'EndDT'});
-
-        push @records, $record;
-    }
-    return \@records;
-}
-
-sub ref_to_no_blanks {
-    return [grep {$_ ne ''} @_];
 }
 
 sub handle_room {
@@ -251,11 +219,11 @@ sub book_room {
 sub book_guest {
     my ($guests, $guest, $session) = @_;
 
-    if (session_does_not_clash($guests->{$guest}, $session)) {
-        push @{$guests->{$guest}}, $session;
-        print 'Booked guest "' . $guest . '" for "' . $session->{'Event'} . '" OK!' .  "\n" if $DEBUG;
+    if (session_does_not_clash($guests->{$guest->{'full_name'}}, $session)) {
+        push @{$guests->{$guest->{'full_name'}}}, $session;
+        print 'Booked guest "' . $guest->{'full_name'} . '" for "' . $session->{'Event'} . '" OK!' .  "\n" if $DEBUG;
     } else {
-        print "*** CLASH for $guest\n";
+        print "*** CLASH for $guest->{'full_name'}\n";
     }
     return $guests;
 }
@@ -703,42 +671,9 @@ sub make_konopas_data {
     my $personId = 0;
     my $personHash = {};
     
-    my $programId = 0;
     my $programList = [];
 
-    open(GUESTS, "<", "guest.csv");
-    my @guestsRaw = <GUESTS>;
-    chomp @guestsRaw;
-    close(GUESTS);
-
-    my $guestData = {};
-    foreach my $guestLine (@guestsRaw) {
-        my @thisGuest = split(/,/, $guestLine, 4);
-        $guestData->{$thisGuest[0]} = {bio => $thisGuest[1], img => $thisGuest[2], shortBio => $thisGuest[3]};
-    }
-
-    my @peopleMap = ();
-
-    if (-f "peoplemap.csv") {
-        open(PEOPLEMAP, "<", "peoplemap.csv");
-        @peopleMap = <PEOPLEMAP>;
-        chomp @peopleMap;
-        close(PEOPLEMAP);
-    }
-
-    my $peopleData = {};
-    foreach my $peopleLine (@peopleMap) {
-        my @thisPerson = split(/,/, $peopleLine, 2);
-        $peopleData->{$thisPerson[1]} = $thisPerson[0];
-        if ($thisPerson[0] > $personId) {
-            $personId = $thisPerson[0];
-        }
-    }
-
     foreach my $s (@$schedule) {
-        # increase the programId whatever happens! (regardless if the session is cancelled)
-        $programId++;
-
         next if (has_session_flag($s, "Cancelled"));
 
         my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'});
@@ -747,7 +682,7 @@ sub make_konopas_data {
         }
 
         # *id, *title, *tags: [], *date, *time, *mins, *loc: [], people: [{id, name}], *desc
-        my $newProgramItem = {id => $programId."", title => $boxContents, desc => $s->{'Description'}, tags => $s->{'Tracks'}, loc => [render_room($s->{'Room'}, 1)]};
+        my $newProgramItem = {id => "$s->{'Id'}", title => $boxContents, desc => $s->{'Description'}, tags => $s->{'Tracks'}, loc => [render_room($s->{'Room'}, 1)]};
 
         my $dateFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%F');
         my $formattedDate = $dateFormatter->format_datetime($s->{'StartObj'});
@@ -760,89 +695,21 @@ sub make_konopas_data {
         $newProgramItem->{'mins'} = $dtLength->in_units('minutes') . "";
 
         foreach my $g (@{$s->{'Guests'}}) {
-            if (!exists($personHash->{$g})) {
+            if (!exists($personHash->{$g->{'full_name'}})) {
                 # if it is present in the peoplemap, take the ID from there, else generate a new one.
-                my $thisPersonId;
-                if (exists($peopleData->{$g})) {
-                    $thisPersonId = $peopleData->{$g};
-                } else {
-                    $personId++;
-                    $thisPersonId = $personId;
-                    $peopleData->{$g} = $thisPersonId;
-                }
-                my $newPersonItem = {id => $thisPersonId, links => {}, prog => [], tags => [], bio => ""};
-                my @splitName = split(/\s+/, $g);
-                my $namePrefix = '';
-                if (($splitName[0] eq 'Dr') || ($splitName[0] eq "Rev'd")) {
-                    $namePrefix = shift @splitName;
-                }
-                my $firstName = join(' ', @splitName[0..($#splitName - 1)]);
-                my $lastName = $splitName[$#splitName];
-                $newPersonItem->{'name'} = [$firstName, $lastName, $namePrefix];
-
-                if (exists($guestData->{$g})) {
-                    $guestData->{$g}{'seen'} = 1;
-                    $newPersonItem->{'links'}{'img'} = $guestData->{$g}{'img'};
-                    $newPersonItem->{'links'}{'bio'} = $guestData->{$g}{'bio'};
-                    $newPersonItem->{'bio'} = $guestData->{$g}{'shortBio'};
-                } else {
-                    print "- no match for $g\n" if $DEBUG;
-                }
-
-                $personHash->{$g} = $newPersonItem;
+                my $newPersonItem = {id => "$g->{'id'}", links => {img => $g->{'link_img'}, bio => $g->{'link_bio'}}, prog => [], tags => [], bio => $g->{'bio'}, name => [@{$g}{qw(forename surname prefix)}]};
+                $personHash->{$g->{'full_name'}} = $newPersonItem;
             }
 
-            push @{$personHash->{$g}{'prog'}}, $programId."";
-            push @{$newProgramItem->{'people'}}, {id => $personHash->{$g}{'id'}."", name => $g};
+            push @{$personHash->{$g->{'full_name'}}{'prog'}}, "$s->{'Id'}";
+            push @{$newProgramItem->{'people'}}, {id => "$g->{'id'}", name => $g->{'full_name'}};
         }
 
         push @$programList, $newProgramItem;
     }
 
-    # mop up unseen guests
-    foreach my $g (keys %$guestData) {
-        next if exists($g->{'seen'});
-        if (!exists($personHash->{$g})) {
-            # if it is present in the peoplemap, take the ID from there, else generate a new one.
-            my $thisPersonId;
-            if (exists($peopleData->{$g})) {
-                $thisPersonId = $peopleData->{$g};
-            } else {
-                $personId++;
-                $thisPersonId = $personId;
-                $peopleData->{$g} = $thisPersonId;
-            }
-            my $newPersonItem = {id => $thisPersonId, links => {}, prog => [], tags => [], bio => ""};
-            my @splitName = split(/\s+/, $g);
-            my $namePrefix = '';
-            if (($splitName[0] eq 'Dr') || ($splitName[0] eq "Rev'd")) {
-                $namePrefix = shift @splitName;
-            }
-            my $firstName = join(' ', @splitName[0..($#splitName - 1)]);
-            my $lastName = $splitName[$#splitName] . ' [!]';
-            $newPersonItem->{'name'} = [$firstName, $lastName, $namePrefix];
-
-            if (exists($guestData->{$g})) {
-                $guestData->{$g}{'seen'} = 1;
-                $newPersonItem->{'links'}{'img'} = $guestData->{$g}{'img'};
-                $newPersonItem->{'links'}{'bio'} = $guestData->{$g}{'bio'};
-                $newPersonItem->{'bio'} = $guestData->{$g}{'shortBio'};
-            } else {
-                print "- no match for $g\n" if $DEBUG;
-            }
-
-            $personHash->{$g} = $newPersonItem;
-        }
-    }
-
-    open(OUT, ">", "peoplemap.csv");
-    foreach my $guest (sort {$peopleData->{$a} <=> $peopleData->{$b}} keys %$peopleData) {
-        print OUT $peopleData->{$guest} . ',' . $guest . "\n";
-    }
-    close(OUT);
-
     open(OUT, ">", "people.js");
-    print OUT "var people = " . encode_json([sort {$a->{'id'} <=> $b->{'id'}} values %$personHash]) . ";\n";
+    print OUT "var people = " . encode_json([values %$personHash]) . ";\n";
     close(OUT);
 
     open(OUT, ">", "program.js");
@@ -853,59 +720,6 @@ sub make_konopas_data {
     close(OUT);
 
     return 1;
-}
-
-sub read_spiels {
-    open(IN, "<:utf8", "spiels.csv");
-    my @lines = <IN>;
-    chomp @lines;
-    close(IN);
-    
-    my $spiels = {};
-
-    my @splitLines = quoted_csv_split(@lines);
-
-    foreach my $line (@splitLines) {
-        my $key = lc($line->[0]);
-        my $spiel = $line->[1];
-        $spiel =~ s/“/"/g;
-        $spiel =~ s/’/'/g;
-        $key =~ s/[^a-z0-9]//g;
-        if ($key eq '') {
-            print "STOP - key for '$line->[0]' ($line->[1]) is blank";
-            die;
-        }
-        $spiels->{$key} = {matched => 0, spiel => $line->[1]};
-    }
-
-    return $spiels;
-}
-
-sub do_spiel_matching {
-    my ($spiels, $schedule) = @_;
-    my @matches; my @noMatchSched;
-    my $sCount = 0;
-SESSION:
-    foreach my $s (@$schedule) {
-        my $matchEvent = lc($s->{'Event'});
-        $matchEvent =~ s/[^a-z0-9]//g;
-SPIEL:
-        foreach my $key (keys %$spiels) {
-            if (($matchEvent =~ m/^$key/) || ($key =~ m/^$matchEvent/)) {
-                print "*** Matched $key with $matchEvent!\n" if $DEBUG;
-                $s->{'Spiel'} = $spiels->{$key}{'spiel'};
-                $spiels->{$key}{'matched'}++;
-                next SESSION;
-            }
-        }
-        print "--- No match for $matchEvent\n" if $DEBUG;
-        push @noMatchSched, $s;
-    }
-    foreach my $key (keys %$spiels) {
-        next if ($spiels->{$key}{'matched'} > 0);
-        print "/// No match for spiel with key $key\n" if $DEBUG;
-    }
-    return $schedule;
 }
 
 sub make_cache_manifest {
