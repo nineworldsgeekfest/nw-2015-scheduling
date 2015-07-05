@@ -88,7 +88,7 @@ sub process_db_schedule {
     }
 
     ($programTracks, $error) = Util::DB::dbSelect($dbh, 'id', 'program_track.id AS id, program_id, name', ['program_track', 'track'], 'program_track.track_id = track.id', []);
-    ($programFlags, $error) = Util::DB::dbSelect($dbh, 'id', 'program_flags.id AS id, program_id, name', ['program_flags', 'flags'], 'program_flags.flag_id = flags.id', []);
+    ($programFlags, $error) = Util::DB::dbSelect($dbh, 'id', 'program_flags.id AS id, program_id, name, flag_type', ['program_flags', 'flags'], 'program_flags.flag_id = flags.id', []);
     ($programGuests, $error) = Util::DB::dbSelect($dbh, 'id', 'program_people.id AS id, program_id, prefix, forename, surname, bio, link_bio, link_img', ['program_people', 'people'], 'program_people.people_id = people.id', []);
 
     my $dayFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%F');
@@ -105,7 +105,7 @@ sub process_db_schedule {
     }
 
     foreach my $programFlagId (keys %$programFlags) {
-        push @{$program->{$programFlags->{$programFlagId}{'program_id'}}{'Flags'}}, $programFlags->{$programFlagId}{'name'};
+        push @{$program->{$programFlags->{$programFlagId}{'program_id'}}{'Flags'}}, $programFlags->{$programFlagId};
     }
 
     foreach my $programId (keys %$program) {
@@ -221,7 +221,7 @@ sub validate_schedule {
 
     foreach my $session (@$schedule) {
         # don't bother booking anything if the session is cancelled
-        next if (is_session_cancelled($session));
+        next if (has_session_flag($session, "Cancelled"));
         foreach my $room (@{$session->{'Rooms'}}) {
             $rooms = book_room($rooms, $room, $session);
         }
@@ -276,12 +276,12 @@ sub session_does_not_clash {
         next if ($bookedSession->{'StartObj'} >= $newSession->{'EndObj'});
         next if ($bookedSession->{'EndObj'} <= $newSession->{'StartObj'});
         print "Clash? " . $bookedSession->{'StartDT'} . " - " . $bookedSession->{'EndDT'} . " -vs- " . $newSession->{'StartDT'} . " - " . $newSession->{'EndDT'} . "\n";
-        if (($newSession->{'Flags'} =~ m/!NOCLASH/) || ($bookedSession->{'Flags'} =~ m/!NOCLASH/)) {
-            print "*!* Disregarding clash because saw the NOCLASH pragma!\n";
+        if (has_session_flag($newSession, 'NoClash') || has_session_flag($bookedSession, 'NoClash')) {
+            print "*!* Disregarding clash because saw the NoClash flag!\n";
             next;
         }
-        if (($newSession->{'Flags'} =~ m/!CANCELLED/) || ($bookedSession->{'Flags'} =~ m/!CANCELLED/)) {
-            print "*!* Disregarding clash because saw the CANCELLED pragma!\n";
+        if (has_session_flag($newSession, 'Cancelled') || has_session_flag($bookedSession, 'Cancelled')) {
+            print "*!* Disregarding clash because saw the Cancelled flag!\n";
             next;
         }
         return 0;
@@ -312,7 +312,7 @@ sub produce_individual_schedules {
         print OUT "Room: $thisRoom\n\n";
 
         foreach my $s (sort {$a->{'StartObj'} <=> $b->{'StartObj'}} @{$rooms->{$thisRoom}}) {
-            print OUT $s->{'StartDT'} . ' - ' . $s->{'EndDT'} . ': ' . $s->{'Event'} . (defined($s->{'Flags'}) && (render_flags($s->{'Flags'}) ne '') ? ' [' . render_flags($s->{'Flags'}) . ']' : '') . ' (' . join(", ", sort @{$s->{'Tracks'}}) . ")\n";
+            print OUT $s->{'StartDT'} . ' - ' . $s->{'EndDT'} . ': ' . $s->{'Event'} . render_text_flags($s->{'Flags'}) . ' (' . join(", ", sort @{$s->{'Tracks'}}) . ")\n";
         }
 
         close(OUT);
@@ -329,7 +329,7 @@ sub produce_individual_schedules {
         print OUT "Guest: $thisGuest\n\n";
 
         foreach my $s (sort {$a->{'StartObj'} <=> $b->{'StartObj'}} @{$guests->{$thisGuest}}) {
-            print OUT $s->{'StartDT'} . ' - ' . $s->{'EndDT'} . ': ' . $s->{'Event'} . (defined($s->{'Flags'}) && (render_flags($s->{'Flags'}) ne '') ? ' [' . render_flags($s->{'Flags'}) . ']' : '') . ' (' . join(", ", sort @{$s->{'Tracks'}}) . ') in room: ' . $s->{'Room'} . "\n";
+            print OUT $s->{'StartDT'} . ' - ' . $s->{'EndDT'} . ': ' . $s->{'Event'} . render_text_flags($s->{'Flags'}) . ' (' . join(", ", sort @{$s->{'Tracks'}}) . ') in room: ' . $s->{'Room'} . "\n";
         }
 
         close(OUT);
@@ -346,7 +346,7 @@ sub produce_individual_schedules {
         print OUT "Track: $thisTrack\n\n";
 
         foreach my $s (sort {$a->{'StartObj'} <=> $b->{'StartObj'}} @{$tracks->{$thisTrack}}) {
-            print OUT $s->{'StartDT'} . ' - ' . $s->{'EndDT'} . ': ' . $s->{'Event'} . (defined($s->{'Flags'}) && (render_flags($s->{'Flags'}) ne '') ? ' [' . render_flags($s->{'Flags'}) . ']' : '') . ' in room: ' . $s->{'Room'} . "\n";
+            print OUT $s->{'StartDT'} . ' - ' . $s->{'EndDT'} . ': ' . $s->{'Event'} . render_text_flags($s->{'Flags'}) . ' in room: ' . $s->{'Room'} . "\n";
         }
 
         close(OUT);
@@ -380,28 +380,42 @@ sub render_room {
     return $printableRoom;
 }
 
-sub is_session_cancelled {
-    my ($s) = @_;
-    if ($s->{'Flags'} =~ m/\!CANCELLED/) {
-        print "*** Session " . $s->{'Event'} . " is cancelled\n";
-        return 1;
+sub has_session_flag {
+    my ($s, $name) = @_;
+    foreach my $flag (@{$s->{'Flags'}}) {
+        return 1 if ($flag->{'name'} eq $name);
     }
-
     return 0;
 }
 
-sub render_flags {
+sub render_span_flags {
     my $flags = shift;
-    my $printableFlags = join(",", sort @$flags);
-    if ($flags =~ m/\!NOCLASH/) {
-        $printableFlags =~ s/\!NOCLASH//;
-        $printableFlags =~ s/^,//;
+    my $output = '';
+    foreach my $thisFlag (sort {($a->{'flag_type'} cmp $b->{'flag_type'}) || ($a->{'name'} cmp $b->{'name'})} @$flags) {
+        my $type = $thisFlag->{'flag_type'};
+        my $name = $thisFlag->{'name'};
+        next if ($type eq 'hidden');
+        $output .= qq(&nbsp;<span class="flag_${type}">$name</span>);
     }
-    if ($flags =~ m/\!CANCELLED/) {
-        $printableFlags =~ s/\!CANCELLED//;
-        $printableFlags =~ s/^,//;
+    return $output;
+}
+
+sub render_text_flags {
+    my $flags = shift;
+    if (!defined($flags) || ((ref($flags) eq 'ARRAY') && !scalar(@$flags))) {
+        return '';
     }
-    return $printableFlags;
+    my @printableList;
+    foreach my $thisFlag (sort {($a->{'flag_type'} cmp $b->{'flag_type'}) || ($a->{'name'} cmp $b->{'name'})} @$flags) {
+        my $type = $thisFlag->{'flag_type'};
+        my $name = $thisFlag->{'name'};
+        next if ($type eq 'hidden');
+        push @printableList, $name;
+    }
+    if (!scalar(@printableList)) {
+        return '';
+    }
+    return ' [' . join(", ", @printableList) . ']';
 }
 
 sub produce_printable_schedules {
@@ -639,10 +653,7 @@ EOHD
                                     $columnsRemaining--;
                                 }
                                 
-                                my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'});
-                                if (defined($s->{'Flags'}) && (render_flags($s->{'Flags'}) ne '')) {
-                                    $boxContents .= ' [' . render_flags($s->{'Flags'}) . ']';
-                                }
+                                my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'}) . render_text_flags($s->{'Flags'});
                                 if (!exists($homeRooms->{$trackName}) || (exists($homeRooms->{$trackName}) && ($s->{'Room'} ne $homeRooms->{$trackName}))) {
                                     $boxContents .= ' <i>(' . render_room($s->{'Room'}) . ')</i>';
                                 }
@@ -664,10 +675,7 @@ EOHD
                                 $rowSpanByColumn{$columnIndexes[$columnIdx]} = $rowSpan - 1;
                             }
                             
-                            my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'});
-                            if (defined($s->{'Flags'}) && (render_flags($s->{'Flags'}) ne '')) {
-                                $boxContents .= ' [' . render_flags($s->{'Flags'}) . ']';
-                            }
+                            my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'}) . render_text_flags($s->{'Flags'});
                             if (!exists($homeRooms->{$trackName}) || (exists($homeRooms->{$trackName}) && ($s->{'Room'} ne $homeRooms->{$trackName}))) {
                                 $boxContents .= ' <i>(' . render_room($s->{'Room'}) . ')</i>';
                             }
@@ -731,11 +739,11 @@ sub make_konopas_data {
         # increase the programId whatever happens! (regardless if the session is cancelled)
         $programId++;
 
-        next if (is_session_cancelled($s));
+        next if (has_session_flag($s, "Cancelled"));
 
         my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'});
-        if (defined($s->{'Flags'}) && (render_flags($s->{'Flags'}) ne '')) {
-            $boxContents .= ' [' . render_flags($s->{'Flags'}) . ']';
+        if (defined($s->{'Flags'}) && (render_span_flags($s->{'Flags'}) ne '')) {
+            $boxContents .= render_span_flags($s->{'Flags'});
         }
 
         # *id, *title, *tags: [], *date, *time, *mins, *loc: [], people: [{id, name}], *desc
