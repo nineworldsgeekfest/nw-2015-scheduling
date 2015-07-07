@@ -82,7 +82,7 @@ foreach my $personId (keys %$people) {
             print "no changes.\n";
         }
     } else {
-        print "- No match for $person->{'full_name'}, that's a bit weird\n";
+        print "- No match for $person->{'full_name'} on the guest page\n";
     }
 }
 
