@@ -674,7 +674,10 @@ sub make_konopas_data {
 
     foreach my $s (@$schedule) {
         next if (has_session_flag($s, "Cancelled"));
-        next if (has_session_flag($s, "Unpublished"));
+        if (has_session_flag($s, "Unpublished")) {
+            print "* Unpublished: $s->{'Id'} ($s->{'Event'})\n";
+            next;
+        }
 
         my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'}) . render_span_flags($s->{'Flags'});
 
