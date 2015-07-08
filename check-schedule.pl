@@ -672,10 +672,13 @@ sub make_konopas_data {
     
     my $programList = [];
 
+    my $unpublishedCtr = 0;
+
     foreach my $s (@$schedule) {
         next if (has_session_flag($s, "Cancelled"));
         if (has_session_flag($s, "Unpublished")) {
             print "* Unpublished: $s->{'Id'} ($s->{'Event'})\n";
+            $unpublishedCtr++;
             next;
         }
 
@@ -706,6 +709,7 @@ sub make_konopas_data {
 
         push @$programList, $newProgramItem;
     }
+    print "Unpublished sessions: $unpublishedCtr\n";
 
     open(OUT, ">", "people.js");
     print OUT "var people = " . encode_json([values %$personHash]) . ";\n";
