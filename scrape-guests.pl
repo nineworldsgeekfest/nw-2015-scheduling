@@ -59,15 +59,15 @@ foreach my $personId (keys %$people) {
         my $thisGuest = $guests{$person->{'full_name'}};
         $thisGuest->{'found'} = 1;
         my $updateRecord = {};
-        if ($thisGuest->{'short'} ne $person->{'bio'}) {
+        if (!defined($person->{'bio'}) || ($thisGuest->{'short'} ne $person->{'bio'})) {
             $updateRecord->{'bio'} = $thisGuest->{'short'};
             print "new bio - ";
         }
-        if ($thisGuest->{'link'} ne $person->{'link_bio'}) {
+        if (!defined($person->{'link_bio'}) || ($thisGuest->{'link'} ne $person->{'link_bio'})) {
             $updateRecord->{'link_bio'} = $thisGuest->{'link'};
             print "new link - ";
         }
-        if ($thisGuest->{'img'} ne $person->{'link_img'}) {
+        if (!defined($person->{'link_img'}) || ($thisGuest->{'img'} ne $person->{'link_img'})) {
             $updateRecord->{'link_img'} = $thisGuest->{'img'};
             print "new img - ";
         }
