@@ -672,7 +672,7 @@ sub make_konopas_data {
     
     my $programList = [];
 
-    my $unpublishedCtr = 0;
+    my $unpublishedCtr = 0; my $hideGuestsCtr = 0;
 
     foreach my $s (@$schedule) {
         next if (has_session_flag($s, "Cancelled"));
@@ -680,6 +680,10 @@ sub make_konopas_data {
             print "* Unpublished: $s->{'Id'} ($s->{'Event'})\n";
             $unpublishedCtr++;
             next;
+        }
+        if (has_session_flag($s, "Hide guests")) {
+            print "* Hiding guests: $s->{'Id'} ($s->{'Event'})\n";
+            $hideGuestsCtr++;
         }
 
         my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'}) . render_span_flags($s->{'Flags'});
@@ -697,19 +701,22 @@ sub make_konopas_data {
         my $dtLength = $s->{'EndObj'}->subtract_datetime($s->{'StartObj'});
         $newProgramItem->{'mins'} = $dtLength->in_units('minutes') . "";
 
-        foreach my $g (@{$s->{'Guests'}}) {
-            if (!exists($personHash->{$g->{'full_name'}})) {
-                my $newPersonItem = {id => "$g->{'guest_id'}", links => {img => $g->{'link_img'}, bio => $g->{'link_bio'}}, prog => [], tags => [], bio => $g->{'bio'}, name => [@{$g}{qw(forename surname prefix)}]};
-                $personHash->{$g->{'full_name'}} = $newPersonItem;
-            }
+        unless (has_session_flag($s, "Hide guests")) {
+            foreach my $g (@{$s->{'Guests'}}) {
+                if (!exists($personHash->{$g->{'full_name'}})) {
+                    my $newPersonItem = {id => "$g->{'guest_id'}", links => {img => $g->{'link_img'}, bio => $g->{'link_bio'}}, prog => [], tags => [], bio => $g->{'bio'}, name => [@{$g}{qw(forename surname prefix)}]};
+                    $personHash->{$g->{'full_name'}} = $newPersonItem;
+                }
 
-            push @{$personHash->{$g->{'full_name'}}{'prog'}}, "$s->{'Id'}";
-            push @{$newProgramItem->{'people'}}, {id => "$g->{'guest_id'}", name => $g->{'full_name'}};
+                push @{$personHash->{$g->{'full_name'}}{'prog'}}, "$s->{'Id'}";
+                push @{$newProgramItem->{'people'}}, {id => "$g->{'guest_id'}", name => $g->{'full_name'}};
+            }
         }
 
         push @$programList, $newProgramItem;
     }
     print "Unpublished sessions: $unpublishedCtr\n";
+    print "Sessions with hidden guests: $hideGuestsCtr\n";
 
     open(OUT, ">", "people.js");
     print OUT "var people = " . encode_json([values %$personHash]) . ";\n";
