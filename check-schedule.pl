@@ -363,7 +363,8 @@ sub render_span_flags {
         my $type = $thisFlag->{'flag_type'};
         my $name = $thisFlag->{'name'};
         next if ($type eq 'hidden');
-        $output .= qq(&nbsp;<span class="flag_${type}">$name</span>);
+        $name =~ s/ /&nbsp;/g;
+        $output .= qq( <span class="flag_${type}">$name</span>);
     }
     return $output;
 }
