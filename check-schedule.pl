@@ -243,15 +243,15 @@ sub session_does_not_clash {
         # the start time of bS is after the end time of nS
         next if ($bookedSession->{'StartObj'} >= $newSession->{'EndObj'});
         next if ($bookedSession->{'EndObj'} <= $newSession->{'StartObj'});
-        print "Clash? " . $bookedSession->{'StartDT'} . " - " . $bookedSession->{'EndDT'} . " -vs- " . $newSession->{'StartDT'} . " - " . $newSession->{'EndDT'} . "\n";
         if (has_session_flag($newSession, 'NoClash') || has_session_flag($bookedSession, 'NoClash')) {
-            print "*!* Disregarding clash because saw the NoClash flag!\n";
+            # print "*!* Disregarding clash because saw the NoClash flag!\n";
             next;
         }
         if (has_session_flag($newSession, 'Cancelled') || has_session_flag($bookedSession, 'Cancelled')) {
-            print "*!* Disregarding clash because saw the Cancelled flag!\n";
+            # print "*!* Disregarding clash because saw the Cancelled flag!\n";
             next;
         }
+        print "Clash! " . $bookedSession->{'StartDT'} . " - " . $bookedSession->{'EndDT'} . " -vs- " . $newSession->{'StartDT'} . " - " . $newSession->{'EndDT'} . "\n";
         return 0;
     }
 
