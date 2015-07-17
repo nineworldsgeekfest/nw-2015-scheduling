@@ -241,8 +241,8 @@ sub session_does_not_clash {
         # it is NOT a clash if:
         # the end time of bS is before the start time of nS
         # the start time of bS is after the end time of nS
-        next if ($bookedSession->{'StartObj'} >= $newSession->{'EndObj'});
-        next if ($bookedSession->{'EndObj'} <= $newSession->{'StartObj'});
+        next if ($bookedSession->{'StartObj'}->clone->subtract(minutes => 1) >= $newSession->{'EndObj'}->clone->add(minutes => 1));
+        next if ($bookedSession->{'EndObj'}->clone->add(minutes => 1) <= $newSession->{'StartObj'}->clone->subtract(minutes => 1));
         if (has_session_flag($newSession, 'NoClash') || has_session_flag($bookedSession, 'NoClash')) {
             # print "*!* Disregarding clash because saw the NoClash flag!\n";
             next;
