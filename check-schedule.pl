@@ -219,7 +219,7 @@ sub book_room {
 sub book_guest {
     my ($guests, $guest, $session) = @_;
 
-    if (session_does_not_clash($guests->{$guest->{'full_name'}}, $session)) {
+    if (session_does_not_clash($guests->{$guest->{'full_name'}}, $session, 1)) {
         push @{$guests->{$guest->{'full_name'}}}, $session;
         print 'Booked guest "' . $guest->{'full_name'} . '" for "' . $session->{'Event'} . '" OK!' .  "\n" if $DEBUG;
     } else {
@@ -235,14 +235,27 @@ sub book_track {
 }
 
 sub session_does_not_clash {
-    my ($list, $newSession) = @_;
+    my ($list, $newSession, $guestCheck) = @_;
 
     foreach my $bookedSession (@$list) {
         # it is NOT a clash if:
         # the end time of bS is before the start time of nS
         # the start time of bS is after the end time of nS
-        next if ($bookedSession->{'StartObj'}->clone->subtract(minutes => 1) >= $newSession->{'EndObj'}->clone->add(minutes => 1));
-        next if ($bookedSession->{'EndObj'}->clone->add(minutes => 1) <= $newSession->{'StartObj'}->clone->subtract(minutes => 1));
+        my $bookedStart = $bookedSession->{'StartObj'}->clone;
+        my $bookedEnd = $bookedSession->{'EndObj'}->clone;
+        my $newStart = $newSession->{'StartObj'}->clone;
+        my $newEnd = $newSession->{'EndObj'}->clone;
+
+        if (defined($guestCheck) && $guestCheck) {
+            $bookedStart->subtract(minutes => 1);
+            $bookedEnd->add(minutes => 1);
+            $newStart->subtract(minutes => 1);
+            $newEnd->add(minutes => 1);
+        }
+
+        next if ($bookedStart >= $newEnd);
+        next if ($bookedEnd <= $newStart);
+
         if (has_session_flag($newSession, 'NoClash') || has_session_flag($bookedSession, 'NoClash')) {
             # print "*!* Disregarding clash because saw the NoClash flag!\n";
             next;
