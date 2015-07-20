@@ -90,7 +90,7 @@ sub process_db_schedule {
     ($programFlags, $error) = Util::DB::dbSelect($dbh, 'id', 'program_flags.id AS id, program_id, name, flag_type', ['program_flags', 'flags'], 'program_flags.flag_id = flags.id', []);
     ($programGuests, $error) = Util::DB::dbSelect($dbh, 'id', 'program_people.id AS id, program_id, people.id AS guest_id, full_name, prefix, forename, surname, bio, link_bio, link_img', ['program_people', 'people'], 'program_people.people_id = people.id', []);
 
-    my $dayFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%F');
+    my $dayFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%a');
     my $timeFormatter = DateTime::Format::Strptime->new(locale => 'en_GB', time_zone => $localTZ, pattern => '%R');
 
     my @records;
@@ -295,6 +295,7 @@ sub produce_individual_schedules {
         foreach my $s (sort {$a->{'StartObj'} <=> $b->{'StartObj'}} @{$rooms->{$thisRoom}}) {
             print OUT $s->{'StartDT'} . ' - ' . $s->{'EndDT'} . ': ' . $s->{'Event'} . render_text_flags($s->{'Flags'}) . ' (' . join(", ", sort @{$s->{'Tracks'}}) . ")\n";
         }
+        print OUT "\n\n";
 
         close(OUT);
     }
@@ -310,8 +311,9 @@ sub produce_individual_schedules {
         print OUT "Guest: $thisGuest\n\n";
 
         foreach my $s (sort {$a->{'StartObj'} <=> $b->{'StartObj'}} @{$guests->{$thisGuest}}) {
-            print OUT $s->{'StartDT'} . ' - ' . $s->{'EndDT'} . ': ' . $s->{'Event'} . render_text_flags($s->{'Flags'}) . ' (' . join(", ", sort @{$s->{'Tracks'}}) . ') in room: ' . $s->{'Room'} . "\n";
+            print OUT $s->{'StartDT'} . ' - ' . $s->{'EndDT'} . ': ' . $s->{'Event'} . render_text_flags($s->{'Flags'}) . ' (' . join(", ", sort @{$s->{'Tracks'}}) . ') - Room: ' . $s->{'Room'} . "\n";
         }
+        print OUT "\n\n";
 
         close(OUT);
     }
@@ -327,8 +329,9 @@ sub produce_individual_schedules {
         print OUT "Track: $thisTrack\n\n";
 
         foreach my $s (sort {$a->{'StartObj'} <=> $b->{'StartObj'}} @{$tracks->{$thisTrack}}) {
-            print OUT $s->{'StartDT'} . ' - ' . $s->{'EndDT'} . ': ' . $s->{'Event'} . render_text_flags($s->{'Flags'}) . ' in room: ' . $s->{'Room'} . "\n";
+            print OUT $s->{'StartDT'} . ' - ' . $s->{'EndDT'} . ': ' . $s->{'Event'} . render_text_flags($s->{'Flags'}) . ' - Room: ' . $s->{'Room'} . "\n";
         }
+        print OUT "\n\n";
 
         close(OUT);
     }
