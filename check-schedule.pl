@@ -19,7 +19,7 @@ my $schedule = process_db_schedule();
 my $homeRooms = process_homerooms();
 my ($roomSched, $guestSched, $trackSched) = validate_schedule($schedule);
 produce_individual_schedules($roomSched, $guestSched, $trackSched);
-produce_printable_schedules($trackSched, $homeRooms);
+produce_printable_schedules($roomSched, $homeRooms);
 make_konopas_data($schedule);
 make_fake_cache_manifest();
 
@@ -404,12 +404,12 @@ sub render_text_flags {
 }
 
 sub produce_printable_schedules {
-    my ($tracks, $homeRooms) = @_;
+    my ($rooms, $homeRooms) = @_;
 
-    my $tracksPerPage = 6;
     my @strictLHSTimes = qw(09:00 10:00 11:15 11:45 13:00 13:30 14:45 15:15 16:30 17:00 18:15 18:45 20:00 20:30 21:45 22:15 23:30);
-
-    my @trackListing = sort keys %$tracks;
+    my @roomGroupings = (['County-A', 'County-B', 'County-C', '11', '12'], ['Connaught-A', 'Connaught-B', '32', '38'], ['Royal-A', 'Royal-B', 'Royal-C', '40', '41'], 
+                         ['Commonwealth-West', 'Commonwealth-East', 'Newbury-1', 'Atrium', '16', '30']);
+    my %extraRoomMappings = (0 => {room => 'County', colspan => 3}, 1 => {room => 'Connaught', colspan => 2}, 2 => {room => 'Royal', colspan => 3}, 3 => {room => 'Commonwealth', colspan => 2});
 
     my %scheduleDays = ('Thu' => {start => dt_to_obj('Thu 18:00'), end => dt_to_obj('Fri 02:00')},
                         'Fri' => {start => dt_to_obj('Fri 08:00'), end => dt_to_obj('Sat 02:00')},
@@ -419,18 +419,18 @@ sub produce_printable_schedules {
 
     mkdir('printable') unless (-d 'printable');
 
-    # firstly we want to enumerate sessions per track per day
+    # group sessions per room per day
+    
+    my %roomsPerDay = (map {$_ => {}} keys %scheduleDays);
 
-    my %tracksPerDay = (map {$_ => {}} keys %scheduleDays);
-
-    foreach my $trackName (keys %$tracks) {
+    foreach my $roomName (keys %$rooms) {
 
 SESSION:
-        foreach my $session (@{$tracks->{$trackName}}) {
+        foreach my $session (@{$rooms->{$roomName}}) {
             foreach my $scheduleDay (keys %scheduleDays) {
                 if (($session->{'StartObj'} >= $scheduleDays{$scheduleDay}->{'start'}) && 
                     ($session->{'StartObj'} <  $scheduleDays{$scheduleDay}->{'end'})) {
-                    push @{$tracksPerDay{$scheduleDay}->{$trackName}}, $session;
+                    push @{$roomsPerDay{$scheduleDay}->{$roomName}}, $session;
                     next SESSION;
                 }
             }
@@ -439,59 +439,52 @@ SESSION:
     }
 
     # foreach day, now identify track groupings
+    my %pageMappings;
 
-    my %pageMappings = (map {$_ => {}} keys %scheduleDays);
-
-    foreach my $thisDay (keys %tracksPerDay) {
-        my @dayTracks = sort keys %{$tracksPerDay{$thisDay}};
-        my $pageNum = 1;
-        my $thisTracksPerPage = (($pageNum == 1) && ($thisDay ne 'Thu') ? $tracksPerPage - 1 : $tracksPerPage);
-        # this moderately bizarre hack is so All Of The Books gets a double column all the time
-        while (scalar(@dayTracks)) {
-            for (1..$thisTracksPerPage) {
-                if (scalar(@dayTracks)) {
-                    push @{$pageMappings{$thisDay}->{$pageNum}}, shift(@dayTracks);
+    foreach my $thisDay (keys %roomsPerDay) {
+        my @dayRooms = sort keys %{$roomsPerDay{$thisDay}};
+        my $pageNum = 0;
+        foreach my $roomPageList (@roomGroupings) {
+            foreach my $room (@$roomPageList) {
+                if (scalar(@{$roomsPerDay{$thisDay}->{$room}})) {
+                    push @{$pageMappings{$thisDay}->{$pageNum}}, $room;
                 }
             }
             $pageNum++;
         }
+        foreach my $pageNum (keys %extraRoomMappings) {
+            my $room = $extraRoomMappings{$pageNum}->{'room'};
+            if (scalar(@{$roomsPerDay{$thisDay}->{$room}})) {
+                push @{$pageMappings{$thisDay}->{$pageNum}}, $room;
+            }
+        }
     }
 
-    # now, given track groupings, iterate through the track times between the day-times and build the LHS
+    # now, given room groupings, iterate through the times between the day-times and build the LHS
 
     foreach my $thisDay (keys %pageMappings) {
-        my @todaysStrictTimes = ();
+        my @todaysTimes = ();
+        # seed with strictLHSTimes
         foreach my $thisTime (@strictLHSTimes) {
             my $thisTimeObj = dt_to_obj($thisDay . ' ' . $thisTime);
             if (($thisTimeObj >= $scheduleDays{$thisDay}->{'start'}) &&
                 ($thisTimeObj <= $scheduleDays{$thisDay}->{'end'})) {
-                push @todaysStrictTimes, $thisTimeObj;
+                push @todaysTimes, $thisTimeObj;
             }
         }
                 
         foreach my $pageNum (sort {$a <=> $b} keys %{$pageMappings{$thisDay}}) {
             my @thisPageTimes; my %timesForThisPage; my %sessionsByTime; my %trackColSpans; my $totalColumns;
-            push @thisPageTimes, @todaysStrictTimes;
-            my @trackGrouping = @{$pageMappings{$thisDay}->{$pageNum}};
-            foreach my $trackName (@trackGrouping) {
-                my @wantedSessions = @{$tracksPerDay{$thisDay}->{$trackName}};
+            push @thisPageTimes, @todaysTimes;
+            my @roomGrouping = @{$pageMappings{$thisDay}->{$pageNum}};
+            foreach my $roomName (@roomGrouping) {
+                my @wantedSessions = @{$roomsPerDay{$thisDay}->{$roomName}};
                 foreach my $session (@wantedSessions) {
                     push @thisPageTimes, $session->{'StartObj'};
                     push @thisPageTimes, $session->{'EndObj'};
                     my $formattedTime = format_time_for_print($session->{'StartObj'});
-                    push @{$sessionsByTime{$formattedTime}->{$trackName}}, $session;
+                    push @{$sessionsByTime{$formattedTime}->{$roomName}}, $session;
                 }
-                # check for maximal multiplicity
-                my $cols = 1;
-                foreach my $thisTime (keys %sessionsByTime) {
-                    my $multiplicity = scalar(@{$sessionsByTime{$thisTime}->{$trackName}});
-                    if ($multiplicity > $cols) {
-                        $cols = $multiplicity;
-                        print "Cols for $trackName on $thisDay p$pageNum is now $cols ($thisTime)\n" if $DEBUG;
-                    }
-                }
-                $trackColSpans{$trackName} = $cols;
-                $totalColumns += $cols;
             }
 
             foreach my $thisPageTime (@thisPageTimes) {
@@ -500,13 +493,18 @@ SESSION:
             }
 
             my @orderedTimes = sort {$timesForThisPage{$a} <=> $timesForThisPage{$b}} keys %timesForThisPage;
-            print "$thisDay (" . join(',', @trackGrouping) . "):\n\t" . join("\n\t", map {$_ . ' => ' . $timesForThisPage{$_}} @orderedTimes) . "\n\n" if $DEBUG;
+            print "$thisDay (" . join(',', @roomGrouping) . "):\n\t" . join("\n\t", map {$_ . ' => ' . $timesForThisPage{$_}} @orderedTimes) . "\n\n" if $DEBUG;
+            # $totalColumns = scalar(@roomGrouping);
+            $totalColumns = scalar(@{$roomGroupings[$pageNum]});
+           
 
             open(OUT, ">", "printable/" . $thisDay . $pageNum . '.html');
             binmode(OUT, ":utf8"); 
             print OUT <<EOHD;
 <html>
-    <head><title>$thisDay p$pageNum</title>
+    <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <title>$thisDay p$pageNum</title>
     <link rel="stylesheet" href="bootstrap.min.css" />
     <link rel="stylesheet" href="bootstrap-theme.min.css" />
     <link rel="stylesheet" href="schedule-extra.css" />
@@ -518,42 +516,11 @@ EOHD
             my @colSizes;
             my $baseFactor = 95 / $totalColumns;
             my $modFactor = 2.5;
-            my $colDiff = $totalColumns - scalar(@trackGrouping);
-            my $adjustmentFactor = 95 / ($totalColumns * $modFactor);
             my $remainder = 95; my $smallColCount = 0;
-            my $singleWidth = $baseFactor + $adjustmentFactor;
+            my $singleWidth = $baseFactor;
 
-            if ($colDiff == 0) {
-                $singleWidth = $baseFactor;
-            } elsif ($colDiff == 1) {
-                $modFactor = 4;
-                $adjustmentFactor = 95 / ($totalColumns * $modFactor);
-                $singleWidth = $baseFactor + $adjustmentFactor;
-            } else {
-                $modFactor = 3;
-                $adjustmentFactor = 95 / ($totalColumns * $modFactor);
-                $singleWidth = $baseFactor + $adjustmentFactor;
-            }
-
-            foreach my $trackName (@trackGrouping) {
-                my $thisCols = $trackColSpans{$trackName};
-                if ($thisCols == 1) {
-                    my $colSize = sprintf("%.2f", $singleWidth);
-                    push @colSizes, $colSize;
-                    $remainder -= $colSize;
-                } else {
-                    for (1..$thisCols) {
-                        push @colSizes, undef;
-                        $smallColCount++;
-                    }
-                }
-            }
-
-            if ($smallColCount == 0) {$smallColCount = 1}
-            my $newColSize = sprintf("%.2f", $remainder / $smallColCount);
-
-            foreach my $colSize (@colSizes) {
-                print OUT "         <col style=\"width: " . (defined($colSize) ? $colSize : $newColSize) . "%\" />\n";
+            foreach my $roomName (@{$roomGroupings[$pageNum]}) {
+                print OUT "         <col style=\"width: " . $singleWidth . "%\" />\n";
             }
                 
             print OUT <<EOHD;
@@ -562,111 +529,74 @@ EOHD
                 <th class="text-right">Time</th>
 EOHD
             my @columnIndexes;
-            foreach my $trackName (@trackGrouping) {
-                my $trackOutput = $trackName;
-                my $colSpanPrint = '';
-                if ($trackColSpans{$trackName} > 1) {
-                    $colSpanPrint = ' colspan="' . $trackColSpans{$trackName} . '"';
-                    push @columnIndexes, map {$trackName . ':' . $_} (1..$trackColSpans{$trackName});
-                } else {
-                    push @columnIndexes, $trackName;
+            foreach my $roomName (@{$roomGroupings[$pageNum]}) {
+                my $roomOutput = $roomName;
+                $roomOutput =~ s/-/ /;
+                if ($roomOutput =~ m/^\d+$/) {
+                    $roomOutput = "Room $roomName";
+                } elsif ($roomOutput =~ m/ C$/) {
+                    $roomOutput .= ' &amp; D';
                 }
-                if (exists($homeRooms->{$trackName})) {
-                    $trackOutput .= '<br /><i>'.render_room($homeRooms->{$trackName}).'</i>';
-                }
-                print OUT "             <th class=\"text-center\"$colSpanPrint>$trackOutput</th>\n";
+                push @columnIndexes, $roomName;
+                print OUT "             <th class=\"text-center\">$roomOutput</th>\n";
             }
             print OUT "         </tr>\n";
             print OUT "         </thead>\n";
             print OUT "         <tbody>\n";
 
-            my $timeIndex = 0; my %rowSpanByColumn;
+            my $timeIndex = 0; my %rowSpanByColumn; my %colSpanByRow;
             foreach my $orderedTime (@orderedTimes) {
                 print OUT "         <tr>\n";
-                print OUT "         <td class=\"text-right\">$orderedTime\n</td>\n";
+                print OUT "         <td class=\"text-right\">$orderedTime</td>\n";
                 my $columnIdx = 0;
-                foreach my $trackName (@trackGrouping) {
-                    my $usedColSpan = 1;
-                    my $maxColSpan = $trackColSpans{$trackName};
-                    my $colSpanPrint = '';
-
-                    if ($trackColSpans{$trackName} > 1) {
-                        foreach my $addIdx ($columnIdx..($columnIdx + ($trackColSpans{$trackName} - 1))) {
-                            if ($rowSpanByColumn{$columnIndexes[$addIdx]} > 0) {
-                                $maxColSpan = $addIdx - $columnIdx;
-                                last;
-                            }
-                        }
-
-                        $usedColSpan = $trackColSpans{$trackName};
-                        $colSpanPrint = ' colspan="' . $usedColSpan . '"';
-                    }
+                foreach my $roomName (@{$roomGroupings[$pageNum]}) {
                     if ($rowSpanByColumn{$columnIndexes[$columnIdx]} > 0) {
                         $rowSpanByColumn{$columnIndexes[$columnIdx]}--; # no output, we rowspanned over...
-                        $columnIdx += $usedColSpan;
-                    } elsif (!exists($sessionsByTime{$orderedTime}->{$trackName})) {
-                        print OUT "             <td class=\"empty\"$colSpanPrint>&nbsp;</td>\n";
-                        $columnIdx += $usedColSpan;
-                    } else {
-                        my $sessionCount = scalar(@{$sessionsByTime{$orderedTime}->{$trackName}});
-                        if ($sessionCount > 1) {
-                            my $columnsRemaining = $trackColSpans{$trackName};
-                            my $sessionIdx = 0;
-                            foreach my $s (@{$sessionsByTime{$orderedTime}->{$trackName}}) {
-                                my $rowSpan = 1;
-                                foreach my $laterTime (@orderedTimes[($timeIndex+1)..$#orderedTimes]) {
-                                    if ($s->{'EndObj'} > $timesForThisPage{$laterTime}) {
-                                        $rowSpan++;
-                                    }
-                                }
-                                my $rowSpanPrint = '';
-                                if ($rowSpan > 1) {
-                                    $rowSpanPrint = ' rowspan="'. $rowSpan .'"';
-                                    $rowSpanByColumn{$columnIndexes[$columnIdx]} = $rowSpan - 1;
-                                }
-
-                                if ($sessionIdx == ($sessionCount - 1)) {
-                                    # we are at the last session of this multiplicity
-                                    # consume any remaining columns remaining
-                                    $usedColSpan = $columnsRemaining;
-                                    $colSpanPrint = ' colspan="' . $usedColSpan . '"';
-                                    $columnsRemaining = 0;
-                                } else {
-                                    # not at the last session, just consume one column (explicitly)
-                                    $colSpanPrint = '';
-                                    $usedColSpan = 1;
-                                    $columnsRemaining--;
-                                }
-                                
-                                my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'}) . render_text_flags($s->{'Flags'});
-                                if (!exists($homeRooms->{$trackName}) || (exists($homeRooms->{$trackName}) && ($s->{'Room'} ne $homeRooms->{$trackName}))) {
-                                    $boxContents .= ' <i>(' . render_room($s->{'Room'}) . ')</i>';
-                                }
-                                print OUT "             <td class=\"content\"$rowSpanPrint$colSpanPrint>" . $boxContents . "</td>\n";
-                                $columnIdx += $usedColSpan;
-                                $sessionIdx++;
+                        $columnIdx++;
+                    } elsif (($colSpanByRow{$timeIndex} > 0) && ($columnIdx < $colSpanByRow{$timeIndex})) {
+                        $columnIdx++; # no output, we colspanned over...
+                    } elsif (($columnIdx == 0) && (exists($sessionsByTime{$orderedTime}->{$extraRoomMappings{$pageNum}->{'room'}}))) {
+                        my $s = $sessionsByTime{$orderedTime}->{$extraRoomMappings{$pageNum}->{'room'}}[0];
+                        my $rowSpan = 1;
+                        foreach my $laterTime (@orderedTimes[($timeIndex+1)..$#orderedTimes]) {
+                            if ($s->{'EndObj'} > $timesForThisPage{$laterTime}) {
+                                $rowSpan++;
                             }
-                        } else {
-                            my $s = $sessionsByTime{$orderedTime}->{$trackName}[0];
-                            my $rowSpan = 1;
-                            foreach my $laterTime (@orderedTimes[($timeIndex+1)..$#orderedTimes]) {
-                                if ($s->{'EndObj'} > $timesForThisPage{$laterTime}) {
-                                    $rowSpan++;
-                                }
-                            }
-                            my $rowSpanPrint = '';
-                            if ($rowSpan > 1) {
-                                $rowSpanPrint = ' rowspan="'. $rowSpan .'"';
-                                $rowSpanByColumn{$columnIndexes[$columnIdx]} = $rowSpan - 1;
-                            }
-                            
-                            my $boxContents = ($USESHORT ? $s->{'EventShort'} : $s->{'Event'}) . render_text_flags($s->{'Flags'});
-                            if (!exists($homeRooms->{$trackName}) || (exists($homeRooms->{$trackName}) && ($s->{'Room'} ne $homeRooms->{$trackName}))) {
-                                $boxContents .= ' <i>(' . render_room($s->{'Room'}) . ')</i>';
-                            }
-                            print OUT "             <td class=\"content\"$rowSpanPrint$colSpanPrint>" . $boxContents . "</td>\n";
-                            $columnIdx += $usedColSpan;
                         }
+                        my $colSpanPrint = ' colspan="'. $extraRoomMappings{$pageNum}->{'colspan'} . '"';
+                        my $rowSpanPrint = '';
+                        if ($rowSpan > 1) {
+                            $rowSpanPrint = ' rowspan="'. $rowSpan .'"';
+                            $rowSpanByColumn{$columnIndexes[$columnIdx]} = $rowSpan - 1;
+                        }
+
+                        foreach my $rowSpanRows (0..($rowSpan - 1)) {
+                            $colSpanByRow{$timeIndex + $rowSpanRows} = $extraRoomMappings{$pageNum}->{'colspan'};
+                        }
+                            
+                        my $boxContents = ($s->{'EventShort'}) . render_text_flags($s->{'Flags'}) . '<br/><i>(' . join(", ", sort @{$s->{'Tracks'}}) . ')</i>';
+                        print OUT "             <td class=\"content\"$rowSpanPrint$colSpanPrint>" . $boxContents . "</td>\n";
+                        $columnIdx++;
+                    } elsif (!exists($sessionsByTime{$orderedTime}->{$roomName})) {
+                        print OUT "             <td class=\"empty\">&nbsp;</td>\n";
+                        $columnIdx++;
+                    } else {
+                        my $s = $sessionsByTime{$orderedTime}->{$roomName}[0];
+                        my $rowSpan = 1;
+                        foreach my $laterTime (@orderedTimes[($timeIndex+1)..$#orderedTimes]) {
+                            if ($s->{'EndObj'} > $timesForThisPage{$laterTime}) {
+                                $rowSpan++;
+                            }
+                        }
+                        my $rowSpanPrint = '';
+                        if ($rowSpan > 1) {
+                            $rowSpanPrint = ' rowspan="'. $rowSpan .'"';
+                            $rowSpanByColumn{$columnIndexes[$columnIdx]} = $rowSpan - 1;
+                        }
+                            
+                        my $boxContents = ($s->{'EventShort'}) . render_text_flags($s->{'Flags'}) . '<br/><i>(' . join(", ", sort @{$s->{'Tracks'}}) . ')</i>';
+                        print OUT "             <td class=\"content\"$rowSpanPrint>" . $boxContents . "</td>\n";
+                        $columnIdx++;
                     }
                 }
                 print OUT "</tr>\n";
