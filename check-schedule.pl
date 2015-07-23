@@ -574,7 +574,7 @@ EOHD
                             $colSpanByRow{$timeIndex + $rowSpanRows} = $extraRoomMappings{$pageNum}->{'colspan'};
                         }
                             
-                        my $boxContents = ($s->{'EventShort'}) . render_text_flags($s->{'Flags'}) . '<br/><i>(' . join(", ", sort @{$s->{'Tracks'}}) . ')</i>';
+                        my $boxContents = ($s->{'EventShort'}) . render_text_flags($s->{'Flags'}) . ' <i>(' . join(", ", sort @{$s->{'Tracks'}}) . ')</i>';
                         print OUT "             <td class=\"content\"$rowSpanPrint$colSpanPrint>" . $boxContents . "</td>\n";
                         $columnIdx++;
                     } elsif (!exists($sessionsByTime{$orderedTime}->{$roomName})) {
@@ -594,7 +594,7 @@ EOHD
                             $rowSpanByColumn{$columnIndexes[$columnIdx]} = $rowSpan - 1;
                         }
                             
-                        my $boxContents = ($s->{'EventShort'}) . render_text_flags($s->{'Flags'}) . '<br/><i>(' . join(", ", sort @{$s->{'Tracks'}}) . ')</i>';
+                        my $boxContents = ($s->{'EventShort'}) . render_text_flags($s->{'Flags'}) . ' <i>(' . join(", ", sort @{$s->{'Tracks'}}) . ')</i>';
                         print OUT "             <td class=\"content\"$rowSpanPrint>" . $boxContents . "</td>\n";
                         $columnIdx++;
                     }
