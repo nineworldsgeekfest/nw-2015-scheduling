@@ -622,7 +622,6 @@ sub make_konopas_data {
     my $unpublishedCtr = 0; my $hideGuestsCtr = 0;
 
     foreach my $s (@$schedule) {
-        next if (has_session_flag($s, "Cancelled"));
         if (has_session_flag($s, "Unpublished")) {
             print "* Unpublished: $s->{'Id'} ($s->{'Event'})\n";
             $unpublishedCtr++;
