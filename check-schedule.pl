@@ -21,7 +21,7 @@ my ($roomSched, $guestSched, $trackSched) = validate_schedule($schedule);
 produce_individual_schedules($roomSched, $guestSched, $trackSched);
 produce_printable_schedules($roomSched, $homeRooms);
 make_konopas_data($schedule);
-make_fake_cache_manifest();
+make_cache_manifest();
 
 sub quoted_csv_split {
     my @lines = @_;
@@ -691,6 +691,9 @@ data/program.js
 data/people.js
 konopas.min.js
 skin/skin.css
+skin/fonts.css
+skin/konopas.css
+skin/konopas.min.css
 skin/icons.png
 skin/Roboto300.ttf
 skin/Roboto500.ttf
