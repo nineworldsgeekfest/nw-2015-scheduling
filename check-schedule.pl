@@ -21,7 +21,7 @@ my ($roomSched, $guestSched, $trackSched) = validate_schedule($schedule);
 produce_individual_schedules($roomSched, $guestSched, $trackSched);
 produce_printable_schedules($roomSched, $homeRooms);
 make_konopas_data($schedule);
-make_cache_manifest();
+make_fake_cache_manifest();
 
 sub quoted_csv_split {
     my @lines = @_;
